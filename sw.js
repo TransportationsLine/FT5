@@ -1,4 +1,4 @@
-const CACHE = 'FT5-v2';
+const CACHE = 'FT5-v3';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
