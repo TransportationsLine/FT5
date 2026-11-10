@@ -1,4 +1,4 @@
-const CACHE = 'FT5-v1';
+const CACHE = 'FT5-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -24,12 +24,18 @@ self.addEventListener('fetch', e => {
   if (url.hostname.includes('script.google.com') ||
       url.hostname.includes('googleusercontent.com')) return;
 
+  // لا نخزّن فحص صحة الخادم
+  if (url.pathname === '/health') return;
+
   // الشبكة أولاً، ثم الكاش عند انقطاع الإنترنت
   e.respondWith(
     fetch(req)
       .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy));
+        // نخزّن الردود السليمة فقط (لا 404 ولا أخطاء)
+        if (res.ok || res.type === 'opaque') {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
         return res;
       })
       .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
