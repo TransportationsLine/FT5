@@ -952,7 +952,7 @@ function gameLoop(ts){
 }
 
 /* ===== الحساب ===== */
-const API_URL='https://script.google.com/macros/s/AKfycbz1QdPZPqww6j9Fi-Y40Y1dJNeZNNlKps0LqGlUAZOJsHQMSoo8zLkAIv9O4WTbxbl2/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbxpYqC8i-oRgDsRg5Sk_ASuWJrsXrHmkl6aIY61_-L4hzSGgG06Wr0rHQoJVtwrSoSi/exec';
 const LS=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(_){return null}};
 const esc=x=>String(x).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 const newToken=()=>[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join('');
