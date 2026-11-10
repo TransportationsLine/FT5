@@ -3,14 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>FT5*</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Football 4v4 3D</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1e3c72">
-<link rel="icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;width:100%;overflow:hidden;position:fixed;background:#0d1b2a;color:#fff;font-family:'Segoe UI',Arial,sans-serif;touch-action:none;user-select:none}
@@ -70,30 +67,6 @@ html,body{height:100%;width:100%;overflow:hidden;position:fixed;background:#0d1b
   #ctl{padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
   .grp{gap:6px}
 }
-/* ===== زر تثبيت التطبيق (أسفل النافذة) ===== */
-#installBar {
-  display: none;
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  z-index: 2000;
-  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(135deg, #0f2027, #2c5364);
-  box-shadow: none;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #fff;
-}
-body.has-install-bar #bookConfirmBar { bottom: 62px; }
-#installBar.show { display: flex; }
-#installBar .install-text { font-size: 13px; font-weight: 600; }
-#installBar .install-btn {
-  background: linear-gradient(135deg, #047413, #099c1c);
-  color: #000; border: none; border-radius: 10px;
-  padding: 9px 18px; font-weight: 700; cursor: pointer;
-  font-family: 'Cairo', sans-serif; font-size: 14px;
-}
-body.has-install-bar { padding-bottom: 80px; }
 </style>
 </head>
 <body>
@@ -107,7 +80,7 @@ body.has-install-bar { padding-bottom: 80px; }
   <button id="mcpu">🤖 مباراة ودية ضد الكمبيوتر</button>
   <button id="monl">🌐 مباراة رسمية أونلاين</button>
   <div class="row2"><button id="mteam">👕 الفريق</button><button id="mstat">📊 الإحصائيات</button><button id="macc">👤 الحساب</button></div>
-  <small>الرسمية: خصمك لاعب مسجّل نشط بمستواك</small>
+  <small>الرسمية: تلعب مباشرة ضد لاعب حقيقي نشط بمستواك أو الأقرب إليه</small>
   <small>زر واحد للتمرير/التسديد حسب اتجاه التوجيه · زر الركض يلاحق الكرة ويفتكّها · مقصية إذا كانت الكرة خلفك عالياً · اضغط على زميل في الملعب لرفع الكرة إليه</small></div>
 <div class="modal" id="team"><div class="card wide">
   <h2>👕 فريقك</h2>
@@ -140,14 +113,6 @@ body.has-install-bar { padding-bottom: 80px; }
   <div id="joy"><div class="jb"></div><div class="kn"></div></div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
-
-
-<!-- ============ شريط تثبيت التطبيق ============ -->
-<div id="installBar">
-  <span class="install-text" id="installText"></span>
-  <button class="install-btn" id="installBtn">تثبيت التطبيق📲</button>
-</div>
 <script>
 /* ===== ثوابت (سرعات مقللة) ===== */
 const W=1000,H=640,GH=200,GD=24,M=20,PR=12;
@@ -156,12 +121,22 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),dist=(a,b,c,d)=>Math.hypot(c-a,d-
 const norm=(x,y)=>{const l=Math.hypot(x,y)||1;return{x:x/l,y:y/l}};
 const $=id=>document.getElementById(id);
 
+/* ===== الشبكة (WebSocket) =====
+   WS_URL: اتركه فارغاً إذا كانت اللعبة تُفتح من نفس عنوان خادم Node،
+   وإلا ضع عنوانه مثل 'wss://my-server.example.com' */
+const WS_URL='';
+const net={ws:null,role:null,on:false,done:false,got:false,fc:0,evq:[],gin:{x:0,y:0,sp:false},tb:null,inT:0,
+  send(o){if(this.ws&&this.ws.readyState===1)this.ws.send(JSON.stringify(o))}};
+const wsUrl=()=>WS_URL||((location.protocol==='https:'?'wss://':'ws://')+location.host);
+
 /* ===== الصوت ===== */
 const actx=new(window.AudioContext||window.webkitAudioContext)();let au=false;
 const unlock=()=>{if(!au){actx.resume();au=true}};
 addEventListener('pointerdown',unlock,{once:true});addEventListener('keydown',unlock,{once:true});
 function beep(f,d=.08,ty='sine',v=.2,to=null){if(!au)return;const t=actx.currentTime,o=actx.createOscillator(),g=actx.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(to)o.frequency.exponentialRampToValueAtTime(to,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+d)}
 const sfx={kick:p=>beep(400+p*300,.08,'square',.25,80),touch:()=>beep(600,.04,'triangle',.15),goal:()=>{beep(523,.1);setTimeout(()=>beep(659,.1),100);setTimeout(()=>beep(784,.2),200)},count:()=>beep(600,.12),go:()=>beep(900,.3,'sine',.3,1400),whistle:()=>beep(1200,.5,'sine',.3,1600),slide:()=>beep(400,.15,'sawtooth',.2,150),sw:()=>beep(700,.06,'triangle',.2,1000),down:()=>beep(220,.15,'square',.3,60),bicycle:()=>{beep(300,.12,'sawtooth',.3,900);setTimeout(()=>beep(500,.1,'square',.25,1200),80)}};
+/* المضيف يبثّ أحداث الصوت إلى الضيف مع اللقطات */
+for(const k of Object.keys(sfx)){const f=sfx[k];sfx[k]=(...a)=>{f(...a);if(net.role==='host'&&net.on&&k!=='sw'&&net.evq.length<12)net.evq.push([k,+a[0]||0])}}
 
 /* ===== مشهد Three.js ===== */
 const R=new THREE.WebGLRenderer({canvas:$('gl'),antialias:true});
@@ -316,7 +291,9 @@ class Player{
 
 /* ===== الفرق ===== */
 const redTeam=[],greenTeam=[],all=()=>[...redTeam,...greenTeam];
+/* selectedRed: لاعبك المتحكَّم به. selectedGreen: لاعب الخصم الحقيقي (عند المضيف فقط) */
 let selectedRed=3,switchLock=0,sprintHeld=false,charging=false,state='menu';
+let selectedGreen=3,gLock=0,greenHuman=false,myTeam='red';
 let redForm='2-2';
 const FORMS={'2-2':[['DEF',-110],['DEF',110],['FWD',-80],['FWD',80]],'1-2-1':[['DEF',0],['MID',-90],['FWD',0],['MID',90]],'2-1-1':[['DEF',-110],['DEF',110],['FWD',0],['MID',0]],'1-1-2':[['DEF',0],['MID',0],['FWD',-80],['FWD',80]],'3-1':[['DEF',-130],['DEF',0],['FWD',0],['DEF',130]]};
 const ROLEX={DEF:M+80,MID:M+(W-2*M)*.2,FWD:M+(W-2*M)*.3},redBench=[];
@@ -338,32 +315,39 @@ redTeam[0].homeX=M+50;greenTeam[0].homeX=W-M-50;redTeam[0].homeY=greenTeam[0].ho
 applyFormation(redTeam,'2-2');applyFormation(greenTeam,'2-2');
 for(let n=6;n<=8;n++){const b=new Player(0,0,'red',n,'DEF');b.mesh.visible=false;redBench.push(b)}
 const getControlled=()=>redTeam[selectedRed];
-const ref=new Player(W/2,M-26,'ref',0,'REF');ref.sprite.visible=false;
 const opp=t=>t==='red'?greenTeam:redTeam,mates=t=>t==='red'?redTeam:greenTeam;
+/* أدوات التحكم لأي فريق */
+const selOf=t=>t==='red'?selectedRed:selectedGreen;
+const ctl=t=>t==='red'?redTeam[selectedRed]:greenTeam[selectedGreen];
+const isHuman=t=>t==='red'||greenHuman;
+const ref=new Player(W/2,M-26,'ref',0,'REF');ref.sprite.visible=false;
 
-function setSelected(idx,lock=.5){
-  if(idx<0||idx===selectedRed)return;
-  const o=redTeam[selectedRed];if(o){o.isSprinting=false;o.setInput(0,0)}
-  selectedRed=idx;switchLock=lock;sfx.sw();
+function setSelected(idx,lock=.5,t='red'){
+  if(idx<0||idx===selOf(t))return;
+  const o=ctl(t);if(o){o.isSprinting=false;o.setInput(0,0)}
+  if(t==='red'){selectedRed=idx;switchLock=lock;sfx.sw()}else{selectedGreen=idx;gLock=lock}
 }
-function switchPlayer(){
+function switchPlayer(t='red'){
   let best=-1,bd=Infinity;
-  redTeam.forEach((p,i)=>{if(i===selectedRed||p.isGK||p.isDown)return;const d=dist(p.x,p.y,ball.x,ball.y);if(d<bd){bd=d;best=i}});
-  setSelected(best,1.5);
+  mates(t).forEach((p,i)=>{if(i===selOf(t)||p.isGK||p.isDown)return;const d=dist(p.x,p.y,ball.x,ball.y);if(d<bd){bd=d;best=i}});
+  setSelected(best,1.5,t);
 }
-function autoSwitchToPossessor(p){if(p&&!p.isGK&&p.team==='red')setSelected(redTeam.indexOf(p))}
+function autoSwitchToPossessor(p){if(p&&!p.isGK&&isHuman(p.team))setSelected(mates(p.team).indexOf(p),.5,p.team)}
 function autoSwitch(dt){
-  switchLock=Math.max(0,switchLock-dt);
-  const cur=getControlled();
-  if(switchLock>0||charging||cur.sliding>0)return;
-  if(ball.target&&ball.target.team==='red'&&(ball.h>0||ball.vh>0))return;
+  switchLock=Math.max(0,switchLock-dt);gLock=Math.max(0,gLock-dt);
+  autoSwitchTeam('red');if(greenHuman)autoSwitchTeam('green');
+}
+function autoSwitchTeam(t){
+  const cur=ctl(t),lk=t==='red'?switchLock:gLock;
+  if(lk>0||(t==='red'&&charging)||cur.sliding>0)return;
+  if(ball.target&&ball.target.team===t&&(ball.h>0||ball.vh>0))return;
   const poss=findPossessor();
-  if(poss&&poss.team==='red'){autoSwitchToPossessor(poss);return}
+  if(poss&&poss.team===t){autoSwitchToPossessor(poss);return}
   const tx=poss?poss.x:ball.x+ball.vx*6,ty=poss?poss.y:ball.y+ball.vy*6;
   let best=-1,bd=Infinity;
-  redTeam.forEach((p,i)=>{if(p.isGK||p.isDown)return;const d=dist(p.x,p.y,tx,ty);if(d<bd){bd=d;best=i}});
+  mates(t).forEach((p,i)=>{if(p.isGK||p.isDown)return;const d=dist(p.x,p.y,tx,ty);if(d<bd){bd=d;best=i}});
   const cd=cur.isDown?Infinity:dist(cur.x,cur.y,tx,ty);
-  if(best!==selectedRed&&bd<cd*.8-10)setSelected(best);
+  if(best!==selOf(t)&&bd<cd*.8-10)setSelected(best,.5,t);
 }
 
 function handleBallControl(){
@@ -450,7 +434,7 @@ function setPiece(f){
     if(p.isGK)continue;const d=dist(p.x,p.y,bx,by);
     if(d<100){const n=norm(p.x-bx,p.y-by);p.x=bx+n.x*100;p.y=by+n.y*100;p.bound()}
   }
-  if(team==='red')setSelected(redTeam.indexOf(tk),.5);
+  if(isHuman(team))setSelected(mates(team).indexOf(tk),.5,team);
 }
 
 function findPossessor(){
@@ -462,7 +446,7 @@ function aiUpdate(dt){
   const poss=findPossessor();
   all().forEach(p=>p.thinkCd=Math.max(0,p.thinkCd-dt));
   redTeam.forEach((p,i)=>{if(i!==selectedRed&&!p.isDown)aiPlayer(p,'red',poss)});
-  greenTeam.forEach(p=>{if(!p.isDown)aiPlayer(p,'green',poss)});
+  greenTeam.forEach((p,i)=>{if(!p.isDown&&!(greenHuman&&i===selectedGreen))aiPlayer(p,'green',poss)});
 }
 function aiPlayer(p,team,poss){
   if(p.bicycleT>0)return;
@@ -544,7 +528,7 @@ function aiAttack(p,team,poss){
 function aiDefend(p,team,poss){
   let chaser=null,bd=Infinity;
   mates(team).forEach((m,i)=>{
-    if((team==='red'&&i===selectedRed)||m.isGK||m.isDown)return;
+    if((isHuman(team)&&i===selOf(team))||m.isGK||m.isDown)return;
     const d=dist(m.x,m.y,ball.x,ball.y);if(d<bd){bd=d;chaser=m}
   });
   if(chaser===p){
@@ -566,7 +550,7 @@ function checkSlides(){
       if(t===at||t.team===at.team||t.isDown||t.isGK)continue;
       if(dist(at.x,at.y,t.x,t.y)<at.radius+t.radius+4&&t.knockdown(at.x,at.y)){
         if(!(dist(t.x,t.y,ball.x,ball.y)<32&&ball.h<14)){callFoul(at,t);return}
-        if(t===getControlled())setTimeout(switchPlayer,50);
+        if(isHuman(t.team)&&t===ctl(t.team)){const tt=t.team;setTimeout(()=>switchPlayer(tt),50)}
       }
     }
   }
@@ -607,20 +591,32 @@ jel.addEventListener('contextmenu',e=>e.preventDefault());
 
 const keys={};
 const typing=e=>state==='modal'&&/INPUT|TEXTAREA/.test(e.target.tagName||'');
+const doSlide=()=>net.role==='guest'?net.send({t:'act',k:'slide'}):getControlled().slide();
+const doSwitch=()=>net.role==='guest'?net.send({t:'act',k:'switch'}):switchPlayer('red');
 addEventListener('keydown',e=>{
   if(typing(e))return;
   keys[e.code]=true;
   if(/^Arrow/.test(e.code)||e.code==='Space')e.preventDefault();
   if(state!=='playing'||e.repeat)return;
   if(e.code==='KeyF')passOrShoot(.7);
-  if(e.code==='KeyQ')switchPlayer();
-  if(e.code==='KeyE')getControlled().slide();
+  if(e.code==='KeyQ')doSwitch();
+  if(e.code==='KeyE')doSlide();
   if(e.code==='Space')passOrShoot(.45);
 });
 addEventListener('keyup',e=>{keys[e.code]=false});
 addEventListener('blur',()=>{for(const k in keys)keys[k]=false});
 document.addEventListener('pointerup',()=>{const a=document.activeElement;if(a&&a.tagName==='BUTTON')a.blur()});
 
+/* قراءة مدخلات اللاعب المحلي (عصا التوجيه ثم لوحة المفاتيح) */
+function readInput(){
+  let ix=joy.vx,iy=joy.vy;
+  if(Math.abs(ix)<.1&&Math.abs(iy)<.1){
+    ix=iy=0;
+    if(keys.KeyW||keys.ArrowUp)iy-=1;if(keys.KeyS||keys.ArrowDown)iy+=1;
+    if(keys.KeyA||keys.ArrowLeft)ix-=1;if(keys.KeyD||keys.ArrowRight)ix+=1;
+  }
+  return{ix,iy,sp:sprintHeld||!!(keys.ShiftLeft||keys.ShiftRight)};
+}
 function applyInputs(){
   const p=getControlled();if(!p||p.isDown)return;
   let ix=joy.vx,iy=joy.vy;
@@ -638,6 +634,17 @@ function applyInputs(){
     }
     p.isSprinting=!!(keys.ShiftLeft||keys.ShiftRight);
   }
+  p.setInput(ix,iy);
+}
+/* مدخلات الخصم الحقيقي عند المضيف (قادمة من الضيف بإحداثيات العالم) */
+function applyGreen(){
+  const p=ctl('green');if(!p||p.isDown)return;
+  let ix=net.gin.x,iy=net.gin.y;
+  if(net.gin.sp){
+    const dx=ball.x-p.x,dy=ball.y-p.y,d=len(dx,dy);
+    if(d>15){const n=norm(dx,dy);ix=n.x;iy=n.y}
+    p.isSprinting=true;
+  }else p.isSprinting=false;
   p.setInput(ix,iy);
 }
 
@@ -664,63 +671,82 @@ function currentAimDir(){
   if(len(p.vx,p.vy)>.5)return norm(p.vx,p.vy);
   return {x:p.facing,y:0};
 }
+/* اتجاه التصويب عند الضيف: الشاشة مقلوبة 180° لذا نعكس المتجه إلى إحداثيات العالم */
+function guestAim(){
+  const {ix,iy}=readInput();
+  if(len(ix,iy)>.25)return norm(-ix,-iy);
+  const p=ctl('green');if(p&&len(p.vx,p.vy)>.5)return norm(p.vx,p.vy);
+  return{x:-1,y:0};
+}
 function nearestMateInAimDir(p,aim){
   let best=null,bs=-1e9;
-  for(const m of redTeam){
+  for(const m of mates(p.team)){
     if(m===p||m.isGK||m.isDown)continue;
     const d=dist(p.x,p.y,m.x,m.y);if(d<35)continue;
     const c=((m.x-p.x)*aim.x+(m.y-p.y)*aim.y)/(d||1);
     if(c<.35)continue;
-    const free=Math.min(...greenTeam.map(o=>dist(o.x,o.y,m.x,m.y)));
+    const free=Math.min(...opp(p.team).map(o=>dist(o.x,o.y,m.x,m.y)));
     const s=c*2-d/500+free/250;
     if(s>bs){bs=s;best=m}
   }
   return best;
 }
 function goalInAimDir(p,aim){
-  const gx=W-M-p.x,gy=H/2-p.y,gd=len(gx,gy)||1;
+  const gx=(p.team==='red'?W-M:M)-p.x,gy=H/2-p.y,gd=len(gx,gy)||1;
   const c=(gx*aim.x+gy*aim.y)/gd;
   return c>.45;
 }
 
-function passOrShoot(power){
-  const p=getControlled();if(!p||p.isDown)return;
+function passOrShoot(power,t='red',aimIn=null){
+  if(net.role==='guest'){const a=guestAim();net.send({t:'act',k:'shoot',power,ax:a.x,ay:a.y});return}
+  const p=ctl(t);if(!p||p.isDown)return;
+  const aim=aimIn||currentAimDir(),mt=mates(t),gX=t==='red'?W-M:M;
 
   if(canBicycle(p)){
-    const aim=currentAimDir();
     const toBallX=ball.x-p.x,toBallY=ball.y-p.y;
-    const dotFwd=aim.x*toBallX+aim.y*toBallY;
-    if(dotFwd<0){
+    if(aim.x*toBallX+aim.y*toBallY<0){
       bicycleKick(p,aim.x*3,aim.y*3);
       return;
     }
   }
   if(canHead(p)){
-    const aim=currentAimDir();
     const useGoal=goalInAimDir(p,aim);
-    head(p,power,useGoal?(W-M-p.x):aim.x*2,useGoal?(H/2-p.y):aim.y*2);
+    head(p,power,useGoal?(gX-p.x):aim.x*2,useGoal?(H/2-p.y):aim.y*2);
     return;
   }
 
-  const aim=currentAimDir();
   const nearMate=nearestMateInAimDir(p,aim);
   const towardGoal=goalInAimDir(p,aim);
+  const gx=gX-ball.x,gy=H/2-ball.y;
 
   if(towardGoal&&(!nearMate||power>.55)){
-    const gx=W-M-ball.x,gy=H/2-ball.y;
     if(!kickBall(p,Math.max(.35,power),gx,gy))sfx.touch();
     return;
   }
   if(nearMate){
     const d=dist(p.x,p.y,nearMate.x,nearMate.y);
     const pw=clamp(.25+d/450,.3,.85)*(0.6+power*0.4);
-    if(kickBall(p,pw,nearMate.x+nearMate.vx*8-p.x,nearMate.y+nearMate.vy*8-p.y))setSelected(redTeam.indexOf(nearMate),.4);
+    if(kickBall(p,pw,nearMate.x+nearMate.vx*8-p.x,nearMate.y+nearMate.vy*8-p.y))setSelected(mt.indexOf(nearMate),.4,t);
     else sfx.touch();
     return;
   }
-  const gx=W-M-ball.x,gy=H/2-ball.y;
-  const useG=goalInAimDir(p,aim);
-  if(!kickBall(p,Math.max(.3,power),useG?gx:aim.x,useG?gy:aim.y))sfx.touch();
+  if(!kickBall(p,Math.max(.3,power),towardGoal?gx:aim.x,towardGoal?gy:aim.y))sfx.touch();
+}
+
+/* أفعال الضيف التي تصل إلى المضيف عبر الخادم */
+function onGuestAct(m){
+  if(!net.on||net.role!=='host'||state!=='playing'||freezeTimer>0)return;
+  const p=ctl('green');if(!p)return;
+  if(m.k==='shoot'){
+    const ax=+m.ax,ay=+m.ay,pw=clamp(+m.power||.45,0,1);
+    const aim=Number.isFinite(ax)&&Number.isFinite(ay)&&(ax||ay)?norm(ax,ay):{x:-1,y:0};
+    passOrShoot(pw,'green',aim);
+  }else if(m.k==='slide')p.slide();
+  else if(m.k==='switch')switchPlayer('green');
+  else if(m.k==='lob'){
+    const i=m.i|0,r=greenTeam[i];
+    if(r&&r!==p&&!r.isGK&&!r.isDown&&lob(p,r))setSelected(i,.4,'green');
+  }
 }
 
 let t0=0;const fill=$('fill');
@@ -754,8 +780,8 @@ hold($('bchase'),
   ()=>{if(state==='playing')sprintHeld=true},
   ()=>{sprintHeld=false}
 );
-hold($('bsw'),()=>{if(state==='playing')switchPlayer()});
-hold($('bsl'),()=>{if(state==='playing')getControlled().slide()});
+hold($('bsw'),()=>{if(state==='playing')doSwitch()});
+hold($('bsl'),()=>{if(state==='playing')doSlide()});
 
 /* ===== لمس الملعب لرفع الكرة إلى زميل ===== */
 const rc=new THREE.Raycaster(),pl=new THREE.Plane(new THREE.Vector3(0,1,0),0),v2=new THREE.Vector2(),hit=new THREE.Vector3();
@@ -764,6 +790,12 @@ $('gl').addEventListener('pointerdown',e=>{
   v2.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);rc.setFromCamera(v2,cam);
   if(!rc.ray.intersectPlane(pl,hit))return;
   const tx=hit.x/S+W/2,ty=hit.z/S+H/2;
+  if(net.role==='guest'){
+    let ri=-1,bd=130;
+    greenTeam.forEach((p,i)=>{if(i===selectedGreen||p.isDown||p.isGK)return;const d=dist(p.x,p.y,tx,ty);if(d<bd){bd=d;ri=i}});
+    if(ri>=0)net.send({t:'act',k:'lob',i:ri});
+    return;
+  }
   let r=null,bd=130;
   redTeam.forEach((p,i)=>{if(i===selectedRed||p.isDown||p.isGK)return;const d=dist(p.x,p.y,tx,ty);if(d<bd){bd=d;r=p}});
   if(r&&lob(getControlled(),r))setSelected(redTeam.indexOf(r),.4);
@@ -774,13 +806,13 @@ let cdV=3,cdT=0,matchTime=90,last=0,scoreRed=0,scoreGreen=0,lastMsg=null;
 const HALF=90;let kickTeam='red',lastScorer='red',half=1,mode='friendly',phaseT=0,foulInfo=null,oppInfo=null,diff=1,matchId='',endNote='';
 function resetPositions(){
   for(const p of all()){Object.assign(p,{x:p.homeX,y:p.homeY,vx:0,vy:0,sliding:0,slideCd:0,isDown:false,stamina:100,isSprinting:false,thinkCd:0,diveT:0,jump:0,bicycleT:0});p.setInput(0,0)}
-  Object.assign(ball,{x:W/2,y:H/2,h:0,vh:0,vx:0,vy:0,lastTouch:null,cd:0,target:null});selectedRed=3;
+  Object.assign(ball,{x:W/2,y:H/2,h:0,vh:0,vx:0,vy:0,lastTouch:null,cd:0,target:null});selectedRed=3;selectedGreen=3;gLock=0;
   const k=(kickTeam==='red'?redTeam:greenTeam)[3];
   k.x=W/2+(kickTeam==='red'?-22:22);k.y=H/2;ball.lastTouch=k;
 }
-function startMatch(m='friendly',o=null){mode=m;oppInfo=o;diff=m==='official'&&o?clamp(.8+.1*o.level,.8,1.5):1;matchId=Date.now()+'-'+Math.random().toString(36).slice(2,8);endNote='';scoreRed=scoreGreen=0;half=1;matchTime=HALF;kickTeam='red';cdV=3;cdT=0;resetPositions();state='countdown'}
+function startMatch(m='friendly',o=null){mode=m;oppInfo=o;diff=m==='official'&&o&&!net.on?clamp(.8+.1*o.level,.8,1.5):1;matchId=Date.now()+'-'+Math.random().toString(36).slice(2,8);endNote='';scoreRed=scoreGreen=0;half=1;matchTime=HALF;kickTeam='red';cdV=3;cdT=0;resetPositions();state='countdown'}
 const msg=$('msg');
-msg.addEventListener('pointerdown',()=>{if(state==='ended')state='menu'});
+msg.addEventListener('pointerdown',()=>{if(state==='ended'){state='menu';if(net.on||net.ws)leaveOnline()}});
 
 /* ===== عرض العد التنازلي 3 ثوانٍ للمخالفات وإمساك الحارس ===== */
 let freezeTimer=0,freezeReason='';
@@ -788,22 +820,25 @@ function startFreeze(reason){freezeTimer=3;freezeReason=reason}
 
 function updateHUD(){
   $('menu').style.display=state==='menu'?'flex':'none';
-  {const d=(state==='menu'||state==='modal')?'none':'block';$('bteam').style.display=d;$('bstat').style.display=d}
-  $('sr').textContent=scoreRed;$('sg').textContent=scoreGreen;
+  {const d=(state==='menu'||state==='modal'||net.on)?'none':'block';$('bteam').style.display=d;$('bstat').style.display=d}
+  const mine=myTeam==='red'?scoreRed:scoreGreen,theirs=myTeam==='red'?scoreGreen:scoreRed;
+  $('sr').textContent=mine;$('sg').textContent=theirs;
+  $('sr').style.color=myTeam==='red'?'#ff5a5f':'#00d97e';$('sg').style.color=myTeam==='red'?'#00d97e':'#ff5a5f';
   const m=Math.floor(matchTime/60),s=Math.floor(matchTime%60);
   const tm=$('tm');tm.innerHTML=`<small>الشوط ${half}</small>${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   tm.style.color=matchTime<=10?'#ff4444':matchTime<=30?'#ffaa00':'#ffd93d';
-  const c=getControlled(),sb=$('sb');sb.style.width=c.stamina+'%';sb.style.background=c.stamina>50?'#4ecca3':c.stamina>20?'#ffd93d':'#ff4444';
+  const c=ctl(myTeam),sb=$('sb');sb.style.width=c.stamina+'%';sb.style.background=c.stamina>50?'#4ecca3':c.stamina>20?'#ffd93d':'#ff4444';
   fill.style.width=charging?Math.min(100,(performance.now()-t0)/8)+'%':'0';
+  const other=net.on?'للخصم':'للفريق الأخضر';
   let h='';
   if(freezeTimer>0){
     h=`${Math.ceil(freezeTimer)}<small>${freezeReason}</small>`;
   }else if(state==='countdown'){
     h=(cdV>0?cdV:'انطلق!')+(mode==='official'&&oppInfo?`<small>مباراة رسمية ضد ${esc(oppInfo.name)} · مستوى ${oppInfo.level}</small>`:'');
-  }else if(state==='goal')h=`⚽ هدف!<small>${lastScorer==='red'?'لفريقك':'للفريق الأخضر'}</small>`;
-  else if(state==='foul')h=`${foulInfo.pen?'🥅 ضربة جزاء!':'🟨 مخالفة!'}<small>${foulInfo.team==='red'?'لفريقك':'للفريق الأخضر'}</small>`;
-  else if(state==='halftime')h=`نهاية الشوط الأول<div>${scoreRed} - ${scoreGreen}</div><small>الشوط الثاني: الإرسال للفريق الأخضر</small>`;
-  else if(state==='ended'){const w=scoreRed>scoreGreen?'🏆 فاز فريقك':scoreGreen>scoreRed?'😔 فاز الفريق الأخضر':'🤝 تعادل';h=`${w}<div>${scoreRed} - ${scoreGreen}</div><small>${endNote}<br>اضغط للعودة للقائمة</small>`}
+  }else if(state==='goal')h=`⚽ هدف!<small>${lastScorer===myTeam?'لفريقك':other}</small>`;
+  else if(state==='foul'&&foulInfo)h=`${foulInfo.pen?'🥅 ضربة جزاء!':'🟨 مخالفة!'}<small>${foulInfo.team===myTeam?'لفريقك':other}</small>`;
+  else if(state==='halftime')h=`نهاية الشوط الأول<div>${mine} - ${theirs}</div><small>الشوط الثاني: الإرسال للفريق الأخضر</small>`;
+  else if(state==='ended'){const w=mine>theirs?'🏆 فاز فريقك':theirs>mine?(net.on?'😔 فاز الخصم':'😔 فاز الفريق الأخضر'):'🤝 تعادل';h=`${w}<div>${mine} - ${theirs}</div><small>${endNote}<br>اضغط للعودة للقائمة</small>`}
   if(h!==lastMsg){lastMsg=h;msg.innerHTML=h;msg.style.display=h?'flex':'none'}
 }
 
@@ -814,19 +849,79 @@ function render3d(ts){
   ballMesh.position.set(bx,BR*S+ball.h*S,bz);
   const sp=len(ball.vx,ball.vy);
   if(sp>.01){ax.set(ball.vy,0,-ball.vx).normalize();ballMesh.rotateOnWorldAxis(ax,sp*S/(BR*S))}
-  const c=getControlled();
+  const c=ctl(myTeam);
   selM.visible=!c.isDown;selM.position.set(c.mesh.position.x,0,c.mesh.position.z);cone.position.y=6.4+Math.sin(ts*.008)*.4;
-  const k=Math.max(1,1.9/cam.aspect);
-  tp.set(bx*.75,36*k,50*k+bz*.25);tl.set(bx*.85,0,bz*.5);
+  const k=Math.max(1,1.9/cam.aspect),rot=net.role==='guest'?-1:1;   // الضيف: الكاميرا مقلوبة 180° ليرى فريقه يهاجم نحو اليمين
+  tp.set(rot*bx*.75,36*k,rot*(50*k+bz*.25));tl.set(rot*bx*.85,0,rot*bz*.5);
   camPos.lerp(tp,.06);camLook.lerp(tl,.1);cam.position.copy(camPos);cam.lookAt(camLook);
   const rx=clamp(ball.x,M+60,W-M-60),rd=rx-ref.x;
   ref.vx=Math.abs(rd)<35?0:clamp(rd*.03,-2.2,2.2);ref.vy=0;ref.x+=ref.vx;ref.walk+=Math.abs(ref.vx)*.15;ref.sync();
   R.render(scene,cam);
 }
 
+/* ===== لقطات المضيف ← الضيف ===== */
+const r1=v=>Math.round(v*10)/10,r2=v=>Math.round(v*100)/100;
+function sendSnap(){
+  const P=a=>a.map(p=>{
+    const bc=p.bicycleT>0;
+    return[r1(p.x),r1(p.y),r2(p.vx),r2(p.vy),(p.sliding>0?1:0)|(p.isDown?2:0)|(p.diveT>0?4:0),r2(p.jump),r2(p.bicycleT),
+      r2(bc?p.bicycleDirX:p.slideDirX),r2(bc?p.bicycleDirY:p.slideDirY),r1(p.diveV),Math.round(p.stamina)];
+  });
+  net.send({t:'snap',r:P(redTeam),g:P(greenTeam),b:[r1(ball.x),r1(ball.y),r1(ball.h),r2(ball.vx),r2(ball.vy)],
+    st:state,cd:cdV,sr:scoreRed,sg:scoreGreen,mt:r1(matchTime),hf:half,ls:lastScorer,
+    fi:foulInfo?{team:foulInfo.team,pen:!!foulInfo.pen}:null,fz:r1(freezeTimer),fr:freezeReason,
+    ssr:selectedRed,ssg:selectedGreen,ev:net.evq.splice(0)});
+}
+const STATES=['countdown','playing','goal','foul','halftime','ended'];
+function applySnap(m){
+  if(!net.on||net.done||net.role!=='guest')return;
+  const okP=a=>Array.isArray(a)&&a.length===11&&a.every(Number.isFinite);
+  if(!Array.isArray(m.r)||!Array.isArray(m.g)||m.r.length!==5||m.g.length!==5||!m.r.every(okP)||!m.g.every(okP))return;
+  if(!Array.isArray(m.b)||m.b.length!==5||!m.b.every(Number.isFinite)||!STATES.includes(m.st))return;
+  const fl=(p,a)=>{
+    p.tx=a[0]+a[2]*2;p.ty=a[1]+a[3]*2;p.vx=a[2];p.vy=a[3];
+    p.sliding=a[4]&1?.1:0;p.isDown=!!(a[4]&2);p.diveT=a[4]&4?.1:0;
+    p.jump=a[5];p.bicycleT=a[6];p.slideDirX=p.bicycleDirX=a[7];p.slideDirY=p.bicycleDirY=a[8];p.diveV=a[9];p.stamina=a[10];
+    if(!net.got){p.x=p.tx;p.y=p.ty}
+  };
+  m.r.forEach((a,i)=>fl(redTeam[i],a));m.g.forEach((a,i)=>fl(greenTeam[i],a));
+  net.tb={x:m.b[0],y:m.b[1],h:m.b[2],vx:m.b[3],vy:m.b[4]};
+  if(!net.got)Object.assign(ball,net.tb);
+  net.got=true;
+  state=m.st;cdV=m.cd|0;scoreRed=m.sr|0;scoreGreen=m.sg|0;matchTime=+m.mt||0;half=m.hf===2?2:1;
+  lastScorer=m.ls==='green'?'green':'red';
+  foulInfo=m.fi?{team:m.fi.team==='green'?'green':'red',pen:!!m.fi.pen}:(state==='foul'?{team:'red',pen:false}:null);
+  freezeTimer=+m.fz||0;freezeReason=typeof m.fr==='string'?m.fr.slice(0,40):'';
+  selectedRed=clamp(m.ssr|0,0,4);selectedGreen=clamp(m.ssg|0,0,4);
+  if(Array.isArray(m.ev))for(const e of m.ev.slice(0,12))if(Array.isArray(e)&&typeof sfx[e[0]]==='function')sfx[e[0]](+e[1]||0);
+}
+/* الضيف: لا محاكاة محلية، فقط تنعيم اللقطات وإرسال المدخلات */
+function guestStep(dt){
+  for(const p of all()){
+    if(p.tx===undefined)continue;
+    p.tx+=p.vx;p.ty+=p.vy;
+    const dx=p.tx-p.x,dy=p.ty-p.y;
+    if(dx*dx+dy*dy>6400){p.x=p.tx;p.y=p.ty}else{p.x+=dx*.35;p.y+=dy*.35}
+    p.walk+=len(p.vx,p.vy)*.15;p.jump=Math.max(0,p.jump-dt);p.bicycleT=Math.max(0,p.bicycleT-dt);
+  }
+  const b=net.tb;
+  if(b){
+    b.x+=b.vx;b.y+=b.vy;
+    if(Math.abs(b.x-ball.x)+Math.abs(b.y-ball.y)>160){ball.x=b.x;ball.y=b.y}else{ball.x+=(b.x-ball.x)*.5;ball.y+=(b.y-ball.y)*.5}
+    ball.h+=(b.h-ball.h)*.5;ball.vx=b.vx;ball.vy=b.vy;
+  }
+  if(freezeTimer>0)freezeTimer=Math.max(0,freezeTimer-dt);
+  net.inT-=dt;
+  if(net.inT<=0&&state==='playing'){
+    net.inT=.05;const {ix,iy,sp}=readInput();
+    net.send({t:'in',x:r2(-ix),y:r2(-iy),sp});      // سالب: الكاميرا مقلوبة 180°
+  }
+}
+
 function gameLoop(ts){
   const dt=Math.min(.033,(ts-last)/1000||0);last=ts;
-  if(freezeTimer>0){
+  if(net.role==='guest'&&net.on)guestStep(dt);
+  else if(freezeTimer>0){
     freezeTimer-=dt;
     if(freezeTimer<=0){freezeTimer=0;freezeReason='';}
   }else if(state==='countdown'){
@@ -835,12 +930,13 @@ function gameLoop(ts){
   }else if(state==='playing'){
     matchTime-=dt;
     if(matchTime<=0){matchTime=0;sfx.whistle();state=half===1?'halftime':'ended';phaseT=3;if(state==='ended')reportMatch()}
-    autoSwitch(dt);applyInputs();aiUpdate(dt);
+    autoSwitch(dt);applyInputs();if(greenHuman)applyGreen();aiUpdate(dt);
     all().forEach(p=>p.update(dt));
     const sc=ball.update(dt);
     if(sc&&state==='playing'){
       lastScorer=sc==='left'?'red':'green';kickTeam=lastScorer==='red'?'green':'red';
       lastScorer==='red'?scoreRed++:scoreGreen++;sfx.goal();state='goal';phaseT=2;
+      if(net.role==='host'&&net.on)net.send({t:'goal',team:lastScorer});
     }
     handleBallControl();resolveCollisions();checkSlides();
   }else if(state==='goal'||state==='halftime'||state==='foul'){
@@ -851,11 +947,12 @@ function gameLoop(ts){
       else{half=2;matchTime=HALF;kickTeam='green';cdV=3;cdT=0;resetPositions();state='countdown'}
     }
   }
+  if(net.role==='host'&&net.on&&(++net.fc&1)===0)sendSnap();
   render3d(ts);updateHUD();requestAnimationFrame(gameLoop);
 }
 
 /* ===== الحساب ===== */
-const API_URL='https://script.google.com/macros/s/AKfycbxpYqC8i-oRgDsRg5Sk_ASuWJrsXrHmkl6aIY61_-L4hzSGgG06Wr0rHQoJVtwrSoSi/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbz1QdPZPqww6j9Fi-Y40Y1dJNeZNNlKps0LqGlUAZOJsHQMSoo8zLkAIv9O4WTbxbl2/exec';
 const LS=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(_){return null}};
 const esc=x=>String(x).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 const newToken=()=>[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -870,7 +967,7 @@ async function api(action,data={}){
   try{const r=await fetch(API_URL,{method:'POST',body:JSON.stringify({action,token,device,...data})});return await r.json()}
   catch(_){return{ok:false,error:'network'}}
 }
-const ERR={no_api:'الخادم غير مضبوط بعد (API_URL)',network:'تعذر الاتصال بالخادم',bad_email:'بريد غير صالح',throttled:'انتظر قليلاً ثم أعد المحاولة',too_many:'محاولات كثيرة، حاول بعد 15 دقيقة',invalid:'البريد أو الكود غير صحيح',banned:'هذا الحساب محظور',server:'خطأ في الخادم'};
+const ERR={no_api:'الخادم غير مضبوط بعد (API_URL)',network:'تعذر الاتصال بالخادم',bad_email:'بريد غير صالح',throttled:'انتظر قليلاً ثم أعد المحاولة',too_many:'محاولات كثيرة، حاول بعد 15 دقيقة',invalid:'البريد أو الكود غير صحيح',banned:'هذا الحساب محظور',server:'خطأ في الخادم',already:'حسابك في بحث أو مباراة بالفعل',bad_token:'جلسة غير صالحة',no_account:'الحساب غير مسجّل'};
 const say=t=>{$('accmsg').textContent=t},sayErr=r=>say(ERR[r.error]||'حدث خطأ');
 function renderAcc(){
   const a=acct;
@@ -907,6 +1004,7 @@ function localReport(off,gf,ga){
   return up;
 }
 async function reportMatch(){
+  if(net.on){if(net.role==='host')net.send({t:'end'});return}   // أونلاين: الخادم يحسب النتيجة ويحفظها
   const off=mode==='official',gf=scoreRed,ga=scoreGreen;let up=false,fail=false;
   if(API_URL){
     const r=await api('report',{type:off?'official':'friendly',goalsFor:gf,goalsAgainst:ga,matchId});
@@ -987,84 +1085,70 @@ const openStats=async()=>{
 $('bstat').onclick=openStats;$('mstat').onclick=openStats;$('sclose').onclick=()=>closeModal('stats');
 $('aclose').onclick=()=>closeModal('acc');
 
-$('mcpu').onclick=()=>{if(searching){stopSearch();api('cancel')}startMatch('friendly')};
+/* ===== المباراة الأونلاين ===== */
 let searching=false;
-const stopSearch=()=>{searching=false;$('monl').textContent='🌐 مباراة رسمية أونلاين'};
-$('monl').onclick=async()=>{
-  if(banned)return;
-  if(!API_URL){renderAcc();openModal('acc');say('المباراة الرسمية تحتاج ضبط الخادم (API_URL) أولاً');return}
-  if(searching){stopSearch();api('cancel');return}          // ضغطة ثانية = إلغاء البحث
-  searching=true;$('monl').textContent='🔎 جارٍ البحث عن خصم… (اضغط للإلغاء)';
-  const note=t=>{$('who').textContent=t;setTimeout(renderAcc,3500)},t0=Date.now();
-  while(searching){
-    const r=await api('match');
-    if(!searching)return;
-    if(!r.ok){stopSearch();return note(ERR[r.error]||'حدث خطأ')}
-    if(r.found){stopSearch();return startMatch('official',{name:r.name,level:r.level})}
-    if(Date.now()-t0>60000){stopSearch();api('cancel');return note('لا يوجد لاعب في حالة بحث الآن، حاول لاحقاً')}
-    await new Promise(s=>setTimeout(s,3000));
+const setBtn=()=>{$('monl').textContent=searching?'🔎 جارٍ البحث عن خصم… (اضغط للإلغاء)':'🌐 مباراة رسمية أونلاين'};
+const stopSearch=()=>{searching=false;setBtn()};
+const wnote=t=>{$('who').textContent=t;setTimeout(renderAcc,3500)};
+function dropWs(){const w=net.ws;net.ws=null;try{w&&w.close()}catch(_){}}
+function cancelSearch(){stopSearch();dropWs()}      // إغلاق الاتصال يُخرجك من طابور البحث في الخادم
+function leaveOnline(){
+  dropWs();
+  Object.assign(net,{role:null,on:false,done:false,got:false,evq:[],tb:null,gin:{x:0,y:0,sp:false}});
+  greenHuman=false;myTeam='red';freezeTimer=0;freezeReason='';
+  camPos.set(0,40,55);kickTeam='red';resetPositions();
+}
+function onNet(m){
+  switch(m.t){
+    case 'err': stopSearch();dropWs();wnote(ERR[m.e]||'حدث خطأ');break;
+    case 'nomatch': stopSearch();dropWs();wnote('لا يوجد لاعب في حالة بحث الآن، حاول لاحقاً');break;
+    case 'start':{
+      stopSearch();
+      Object.assign(net,{on:true,role:m.role==='host'?'host':'guest',done:false,got:false,evq:[],tb:null,gin:{x:0,y:0,sp:false},fc:0});
+      myTeam=net.role==='host'?'red':'green';greenHuman=net.role==='host';
+      const o=m.opp||{};
+      startMatch('official',{name:String(o.name||'').slice(0,20),level:+o.level||1});
+      matchId=String(m.matchId||matchId);
+      if(net.role==='guest')camPos.set(0,40,-55);
+      break}
+    case 'in':
+      if(net.role==='host'&&net.on){const x=+m.x,y=+m.y;net.gin={x:Number.isFinite(x)?clamp(x,-1,1):0,y:Number.isFinite(y)?clamp(y,-1,1):0,sp:!!m.sp}}
+      break;
+    case 'act': onGuestAct(m);break;
+    case 'snap': applySnap(m);break;
+    case 'result':{
+      net.done=true;
+      if(m.score){scoreRed=+m.score.red|0;scoreGreen=+m.score.green|0}
+      if(m.profile){acct=m.profile;saveAcct();renderAcc()}
+      endNote=(m.forfeit?(m.won?'انسحب الخصم · ':'انقطع اتصالك · '):'')+(m.fail?'تعذر حفظ النتيجة على الخادم':m.leveledUp?`🎉 صعدت إلى المستوى ${acct.level}!`:`تقدّمك: ${acct.omWins}/3`);
+      state='ended';
+      break}
   }
+}
+function onNetClose(ws){
+  if(ws!==net.ws)return;
+  net.ws=null;
+  if(searching){stopSearch();wnote('تعذر الاتصال بالخادم أو انقطع');return}
+  if(net.on&&!net.done&&state!=='ended'){state='ended';endNote='انقطع الاتصال بالخادم'}
+}
+$('mcpu').onclick=()=>{if(searching)cancelSearch();startMatch('friendly')};
+$('monl').onclick=()=>{
+  if(banned)return;
+  if(searching){cancelSearch();return}
+  if(!API_URL){renderAcc();openModal('acc');say('المباراة الرسمية تحتاج ضبط الخادم (API_URL) أولاً');return}
+  const url=wsUrl();
+  if(!/^wss?:\/\/./.test(url)){renderAcc();openModal('acc');say('اضبط WS_URL أو افتح اللعبة من عنوان خادم Node');return}
+  searching=true;setBtn();
+  let ws;try{ws=new WebSocket(url)}catch(_){stopSearch();wnote('تعذر الاتصال بالخادم');return}
+  net.ws=ws;
+  ws.onopen=()=>net.send({t:'find',token});
+  ws.onmessage=e=>{if(ws!==net.ws)return;let m;try{m=JSON.parse(e.data)}catch(_){return}if(m&&typeof m==='object')onNet(m)};
+  ws.onclose=()=>onNetClose(ws);
 };
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 loadTeam();initAccount();
 resetPositions();camPos.set(0,40,55);
 requestAnimationFrame(gameLoop);
-
-
-
-/* ============================================================
-   تثبيت التطبيق (PWA)
-   ============================================================ */
-let deferredInstallPrompt = null;
-
-const isStandalone = () =>
-  window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-
-const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
-
-function showInstallBar() {
-  if (isStandalone()) return;
-  document.getElementById('installBar').classList.add('show');
-  document.body.classList.add('has-install-bar');
-}
-
-function hideInstallBar() {
-  document.getElementById('installBar').classList.remove('show');
-  document.body.classList.remove('has-install-bar');
-}
-
-// أندرويد / كروم / إيدج
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  showInstallBar();
-});
-
-document.getElementById('installBtn').addEventListener('click', async () => {
-  if (deferredInstallPrompt) {
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    hideInstallBar(false);
-  } else if (isIOS()) {
-    alert('لتثبيت التطبيق على الآيفون:\nاضغط زر المشاركة ⬆️ في سفاري\nثم اختر "إضافة إلى الشاشة الرئيسية"');
-  }
-});
-
-window.addEventListener('appinstalled', () => hideInstallBar(false));
-
-// آيفون: لا يوجد beforeinstallprompt، فنعرض الشريط يدوياً
-if (isIOS() && !isStandalone()) {
-  document.getElementById('installText').textContent = '📲 للتثبيت: مشاركة ⬆️ ← إضافة إلى الشاشة الرئيسية';
-  document.getElementById('installBtn').textContent = 'كيف؟';
-  setTimeout(showInstallBar, 2500);
-}
-
-// تسجيل الـ Service Worker
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW error:', err));
-  });
-}
 </script>
 </body>
 </html>
